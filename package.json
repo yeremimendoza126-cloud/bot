@@ -1,16 +1,12 @@
 {
   "name": "bot",
   "version": "1.0.0",
-  "description": "Bot para Ultimate Punch Playground",
+  "description": "Bot de Moderacion y Tickets para Ultimate Punch Playground",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "distube": "^5.0.0",
-    "@distube/soundcloud": "^2.0.0",
-    "sodium-native": "^4.1.1",
-    "ffmpeg-static": "^5.2.0"
+    "discord.js": "^14.14.1"
   }
 }
