@@ -9,8 +9,8 @@ const {
     PermissionFlagsBits, 
     EmbedBuilder 
 } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType } = require('@discordjs/voice');
-const play = require('play-dl');
+const { DisTube } = require('distube');
+const { SoundCloudPlugin } = require('@distube/soundcloud');
 
 const client = new Client({
     intents: [
@@ -22,15 +22,26 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
+// Configuración de DisTube para manejar audio fluido
+const distube = new DisTube(client, {
+    emitNewSongOnly: true,
+    plugins: [new SoundCloudPlugin()]
+});
+
 const PREFIX = '!';
-const player = createAudioPlayer();
 
 client.once('ready', () => {
     console.log(`Bot encendido como: ${client.user.tag}`);
 });
 
-player.on('error', error => {
-    console.error('Error de audio:', error);
+// Eventos de reproducción para confirmar en chat
+distube.on('playSong', (queue, song) => {
+    queue.textChannel?.send(`🎶 Reproduciendo ahora: **${song.name}**`);
+});
+
+distube.on('error', (channel, error) => {
+    console.error('Error en DisTube:', error);
+    if (channel) channel.send('Ocurrió un error al intentar reproducir la canción.');
 });
 
 client.on('messageCreate', async (message) => {
@@ -39,43 +50,34 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
+    // COMANDO PLAY
     if (command === 'play') {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
 
         const query = args.join(' ');
-        if (!query) return message.reply('Escribe el nombre de una canción o pega un link.');
+        if (!query) return message.reply('Escribe el nombre de una canción.');
 
         try {
-            // Busca la canción usando SoundCloud para evitar bloqueos de IP
-            let source = await play.stream(query, { source: { soundcloud: 'tracks' } });
-
-            const resource = createAudioResource(source.stream, {
-                inputType: source.type
+            await distube.play(voiceChannel, query, {
+                textChannel: message.channel,
+                member: message.member
             });
-
-            const connection = joinVoiceChannel({
-                channelId: voiceChannel.id,
-                guildId: message.guild.id,
-                adapterCreator: message.guild.voiceAdapterCreator,
-                selfDeaf: false
-            });
-
-            player.play(resource);
-            connection.subscribe(player);
-
-            message.reply(`🎶 Reproduciendo: **${query}**`);
         } catch (error) {
             console.error(error);
-            message.reply('Error al intentar obtener la música. Intenta con otra canción o link de SoundCloud.');
+            message.reply('Error al procesar la reproducción.');
         }
     }
 
+    // COMANDO STOP
     if (command === 'stop') {
-        player.stop();
+        const queue = distube.getQueue(message);
+        if (!queue) return message.reply('No hay música en reproducción.');
+        distube.stop(message);
         message.reply('Música detenida.');
     }
 
+    // COMANDO PANEL TICKETS
     if (command === 'ticket-panel') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return message.reply('Solo administradores pueden usar esto.');
