@@ -9,8 +9,8 @@ const {
     PermissionFlagsBits, 
     EmbedBuilder 
 } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
-const play = require('play-dl');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const ytdl = require('@distube/ytdl-core');
 
 const client = new Client({
     intents: [
@@ -35,20 +35,23 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDO DE MÚSICA: !play <cancion>
+    // COMANDO DE MÚSICA: !play <URL de YouTube>
     if (command === 'play') {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
 
-        const query = args.join(' ');
-        if (!query) return message.reply('Escribe el nombre de la canción.');
+        const url = args[0];
+        if (!url || !ytdl.validateURL(url)) {
+            return message.reply('Por favor pega un enlace directo/URL válido de YouTube. Ejemplo: `!play https://www.youtube.com/watch?v=...`');
+        }
 
         try {
-            const ytResults = await play.search(query, { limit: 1 });
-            if (!ytResults.length) return message.reply('No se encontraron resultados.');
-
-            const stream = await play.stream(ytResults[0].url);
-            const resource = createAudioResource(stream.stream, { inputType: stream.type });
+            const stream = ytdl(url, { 
+                filter: 'audioonly', 
+                highWaterMark: 1 << 25,
+                quality: 'highestaudio'
+            });
+            const resource = createAudioResource(stream);
 
             const connection = joinVoiceChannel({
                 channelId: voiceChannel.id,
@@ -59,10 +62,10 @@ client.on('messageCreate', async (message) => {
             player.play(resource);
             connection.subscribe(player);
 
-            message.reply(`Reproduciendo: **${ytResults[0].title}**`);
+            message.reply('🎶 Reproduciendo música...');
         } catch (error) {
             console.error(error);
-            message.reply('Error al reproducir la música.');
+            message.reply('Error al intentar reproducir el enlace de YouTube.');
         }
     }
 
@@ -71,7 +74,7 @@ client.on('messageCreate', async (message) => {
         message.reply('Música detenida.');
     }
 
-    // COMANDO PARA EL PANEL DE TICKETS: !ticket-panel
+    // COMANDO PARA EL PANEL DE TICKETS
     if (command === 'ticket-panel') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return message.reply('Solo administradores pueden usar esto.');
@@ -94,7 +97,6 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// SISTEMA INTERACTIVO DE TICKETS
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
 
