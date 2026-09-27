@@ -10,7 +10,7 @@ const {
     EmbedBuilder 
 } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType } = require('@discordjs/voice');
-const ytdl = require('@distube/ytdl-core');
+const play = require('play-dl');
 
 const client = new Client({
     intents: [
@@ -29,9 +29,8 @@ client.once('ready', () => {
     console.log(`Bot encendido como: ${client.user.tag}`);
 });
 
-// Capturar errores del reproductor para que no falle en silencio
 player.on('error', error => {
-    console.error('Error en el reproductor de audio:', error);
+    console.error('Error de audio:', error);
 });
 
 client.on('messageCreate', async (message) => {
@@ -44,19 +43,16 @@ client.on('messageCreate', async (message) => {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
 
-        const url = args[0];
-        if (!url || !ytdl.validateURL(url)) {
-            return message.reply('Pega un enlace directo de YouTube. Ejemplo: `!play https://www.youtube.com/watch?v=...`');
-        }
+        const query = args.join(' ');
+        if (!query) return message.reply('Escribe el nombre de una canción o pega un link.');
 
         try {
-            const stream = ytdl(url, { 
-                filter: 'audioonly', 
-                highWaterMark: 1 << 25,
-                quality: 'highestaudio'
-            });
+            // Busca la canción usando SoundCloud para evitar bloqueos de IP
+            let source = await play.stream(query, { source: { soundcloud: 'tracks' } });
 
-            const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+            const resource = createAudioResource(source.stream, {
+                inputType: source.type
+            });
 
             const connection = joinVoiceChannel({
                 channelId: voiceChannel.id,
@@ -68,10 +64,10 @@ client.on('messageCreate', async (message) => {
             player.play(resource);
             connection.subscribe(player);
 
-            message.reply('🎶 Reproduciendo música...');
+            message.reply(`🎶 Reproduciendo: **${query}**`);
         } catch (error) {
             console.error(error);
-            message.reply('Error al intentar reproducir el enlace.');
+            message.reply('Error al intentar obtener la música. Intenta con otra canción o link de SoundCloud.');
         }
     }
 
