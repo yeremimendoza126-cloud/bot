@@ -7,80 +7,225 @@ const {
     ButtonStyle, 
     ChannelType, 
     PermissionFlagsBits, 
-    EmbedBuilder 
+    EmbedBuilder,
+    REST,
+    Routes,
+    SlashCommandBuilder
 } = require('discord.js');
-const { DisTube } = require('distube');
-const { SoundCloudPlugin } = require('@distube/soundcloud');
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates
+        GatewayIntentBits.GuildMembers
     ],
-    partials: [Partials.Channel]
-});
-
-// Configuración de DisTube para manejar audio fluido
-const distube = new DisTube(client, {
-    emitNewSongOnly: true,
-    plugins: [new SoundCloudPlugin()]
+    partials: [Partials.Channel, Partials.GuildMember]
 });
 
 const PREFIX = '!';
 
-client.once('ready', () => {
+// Definición de Comandos Slash (/)
+const slashCommands = [
+    new SlashCommandBuilder()
+        .setName('ban')
+        .setDescription('Banea a un usuario del servidor.')
+        .addUserOption(opt => opt.setName('usuario').setDescription('Usuario a banear').setRequired(true))
+        .addStringOption(opt => opt.setName('razon').setDescription('Razón del baneo').setRequired(false)),
+
+    new SlashCommandBuilder()
+        .setName('kick')
+        .setDescription('Expulsa a un usuario del servidor.')
+        .addUserOption(opt => opt.setName('usuario').setDescription('Usuario a expulsar').setRequired(true))
+        .addStringOption(opt => opt.setName('razon').setDescription('Razón de la expulsión').setRequired(false)),
+
+    new SlashCommandBuilder()
+        .setName('timeout')
+        .setDescription('Aísla/silencia a un usuario temporalmente.')
+        .addUserOption(opt => opt.setName('usuario').setDescription('Usuario a aislar').setRequired(true))
+        .addIntegerOption(opt => opt.setName('minutos').setDescription('Minutos de aislamiento').setRequired(true))
+        .addStringOption(opt => opt.setName('razon').setDescription('Razón del aislamiento').setRequired(false)),
+
+    new SlashCommandBuilder()
+        .setName('clear')
+        .setDescription('Elimina una cantidad de mensajes en el canal.')
+        .addIntegerOption(opt => opt.setName('cantidad').setDescription('Número de mensajes (1-100)').setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('userinfo')
+        .setDescription('Muestra información sobre un usuario.')
+        .addUserOption(opt => opt.setName('usuario').setDescription('Usuario a consultar').setRequired(false)),
+
+    new SlashCommandBuilder()
+        .setName('serverinfo')
+        .setDescription('Muestra detalles del servidor.'),
+
+    new SlashCommandBuilder()
+        .setName('ticket-panel')
+        .setDescription('Publica el panel del sistema de tickets.')
+].map(cmd => cmd.toJSON());
+
+// Al encender el bot: registrar comandos Slash en Discord
+client.once('ready', async () => {
     console.log(`Bot encendido como: ${client.user.tag}`);
+    
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        console.log('Registrando comandos Slash...');
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: slashCommands }
+        );
+        console.log('¡Comandos Slash registrados con éxito!');
+    } catch (error) {
+        console.error('Error al registrar comandos Slash:', error);
+    }
 });
 
-// Eventos de reproducción para confirmar en chat
-distube.on('playSong', (queue, song) => {
-    queue.textChannel?.send(`🎶 Reproduciendo ahora: **${song.name}**`);
-});
+// --- MANEJADOR DE COMANDOS SLASH (/) ---
+client.on('interactionCreate', async (interaction) => {
+    // Manejo de botones (Tickets)
+    if (interaction.isButton()) {
+        if (interaction.customId === 'create_ticket') {
+            const guild = interaction.guild;
+            const user = interaction.user;
 
-distube.on('error', (channel, error) => {
-    console.error('Error en DisTube:', error);
-    if (channel) channel.send('Ocurrió un error al intentar reproducir la canción.');
-});
-
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
-
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-
-    // COMANDO PLAY
-    if (command === 'play') {
-        const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
-
-        const query = args.join(' ');
-        if (!query) return message.reply('Escribe el nombre de una canción.');
-
-        try {
-            await distube.play(voiceChannel, query, {
-                textChannel: message.channel,
-                member: message.member
+            const channel = await guild.channels.create({
+                name: `ticket-${user.username}`,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                ],
             });
-        } catch (error) {
-            console.error(error);
-            message.reply('Error al procesar la reproducción.');
+
+            await interaction.reply({ content: `Tu ticket fue creado en: ${channel}`, ephemeral: true });
+
+            const embed = new EmbedBuilder()
+                .setTitle(`Ticket de ${user.username}`)
+                .setDescription('Explica tu consulta o reporte. El staff te atenderá pronto.')
+                .setColor('#00ff00');
+
+            await channel.send({ content: `<@${user.id}>`, embeds: [embed] });
         }
+        return;
     }
 
-    // COMANDO STOP
-    if (command === 'stop') {
-        const queue = distube.getQueue(message);
-        if (!queue) return message.reply('No hay música en reproducción.');
-        distube.stop(message);
-        message.reply('Música detenida.');
+    if (!interaction.isChatInputCommand()) return;
+
+    const { commandName, options, member, guild } = interaction;
+
+    // /ban
+    if (commandName === 'ban') {
+        if (!member.permissions.has(PermissionFlagsBits.BanMembers)) {
+            return interaction.reply({ content: '❌ No tienes permiso para banear miembros.', ephemeral: true });
+        }
+        const user = options.getUser('usuario');
+        const reason = options.getString('razon') || 'Sin razón especificada';
+        const targetMember = await guild.members.fetch(user.id).catch(() => null);
+
+        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado en el servidor.', ephemeral: true });
+        if (!targetMember.bannable) return interaction.reply({ content: '❌ No puedo banear a este usuario (rol superior o administrador).', ephemeral: true });
+
+        await targetMember.ban({ reason });
+        const embed = new EmbedBuilder()
+            .setTitle('🔨 Usuario Baneado')
+            .addFields(
+                { name: 'Usuario', value: `${user.tag}`, inline: true },
+                { name: 'Razón', value: reason, inline: true },
+                { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
+            )
+            .setColor('#ff0000');
+        return interaction.reply({ embeds: [embed] });
     }
 
-    // COMANDO PANEL TICKETS
-    if (command === 'ticket-panel') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return message.reply('Solo administradores pueden usar esto.');
+    // /kick
+    if (commandName === 'kick') {
+        if (!member.permissions.has(PermissionFlagsBits.KickMembers)) {
+            return interaction.reply({ content: '❌ No tienes permiso para expulsar miembros.', ephemeral: true });
+        }
+        const user = options.getUser('usuario');
+        const reason = options.getString('razon') || 'Sin razón especificada';
+        const targetMember = await guild.members.fetch(user.id).catch(() => null);
+
+        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
+        if (!targetMember.kickable) return interaction.reply({ content: '❌ No puedo expulsar a este usuario.', ephemeral: true });
+
+        await targetMember.kick(reason);
+        const embed = new EmbedBuilder()
+            .setTitle('👢 Usuario Expulsado')
+            .addFields(
+                { name: 'Usuario', value: `${user.tag}`, inline: true },
+                { name: 'Razón', value: reason, inline: true },
+                { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
+            )
+            .setColor('#ffa500');
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // /timeout
+    if (commandName === 'timeout') {
+        if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
+            return interaction.reply({ content: '❌ No tienes permiso para aislar miembros.', ephemeral: true });
+        }
+        const user = options.getUser('usuario');
+        const minutes = options.getInteger('minutos');
+        const reason = options.getString('razon') || 'Sin razón especificada';
+        const targetMember = await guild.members.fetch(user.id).catch(() => null);
+
+        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
+
+        await targetMember.timeout(minutes * 60 * 1000, reason);
+        return interaction.reply({ content: `⏳ **${user.tag}** fue aislado por **${minutes} minutos**. Razón: ${reason}` });
+    }
+
+    // /clear
+    if (commandName === 'clear') {
+        if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.reply({ content: '❌ No tienes permiso para borrar mensajes.', ephemeral: true });
+        }
+        const amount = options.getInteger('cantidad');
+        if (amount < 1 || amount > 100) return interaction.reply({ content: 'Ingresa un número entre 1 y 100.', ephemeral: true });
+
+        await interaction.channel.bulkDelete(amount, true);
+        return interaction.reply({ content: `🧹 Se borraron **${amount}** mensajes.`, ephemeral: true });
+    }
+
+    // /userinfo
+    if (commandName === 'userinfo') {
+        const targetUser = options.getUser('usuario') || interaction.user;
+        const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Información de ${targetUser.username}`)
+            .setThumbnail(targetUser.displayAvatarURL())
+            .addFields(
+                { name: 'ID', value: targetUser.id, inline: true },
+                { name: 'Cuenta Creada', value: `<t:${Math.floor(targetUser.createdTimestamp / 1000)}:R>`, inline: true },
+                { name: 'Unido al Servidor', value: targetMember ? `<t:${Math.floor(targetMember.joinedTimestamp / 1000)}:R>` : 'Desconocido', inline: true }
+            )
+            .setColor('#2b2d31');
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // /serverinfo
+    if (commandName === 'serverinfo') {
+        const embed = new EmbedBuilder()
+            .setTitle(`Detalles de ${guild.name}`)
+            .setThumbnail(guild.iconURL())
+            .addFields(
+                { name: 'Miembros Totales', value: `${guild.memberCount}`, inline: true },
+                { name: 'Creado el', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>`, inline: true },
+                { name: 'ID del Servidor', value: guild.id, inline: true }
+            )
+            .setColor('#2b2d31');
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // /ticket-panel
+    if (commandName === 'ticket-panel') {
+        if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: 'Solo administradores pueden enviar el panel.', ephemeral: true });
         }
 
         const embed = new EmbedBuilder()
@@ -96,40 +241,26 @@ client.on('messageCreate', async (message) => {
 
         const row = new ActionRowBuilder().addComponents(button);
 
-        await message.channel.send({ embeds: [embed], components: [row] });
+        await interaction.channel.send({ embeds: [embed], components: [row] });
+        return interaction.reply({ content: 'Panel enviado correctamente.', ephemeral: true });
     }
 });
 
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isButton()) return;
+// --- COMANDOS CON PREFIX (!) COMO RESPALDO ---
+client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
-    if (interaction.customId === 'create_ticket') {
-        const guild = interaction.guild;
-        const user = interaction.user;
+    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
 
-        const channel = await guild.channels.create({
-            name: `ticket-${user.username}`,
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                {
-                    id: guild.id,
-                    deny: [PermissionFlagsBits.ViewChannel],
-                },
-                {
-                    id: user.id,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-                },
-            ],
-        });
-
-        await interaction.reply({ content: `Tu ticket fue creado en: ${channel}`, ephemeral: true });
-
+    if (command === 'ticket-panel') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
         const embed = new EmbedBuilder()
-            .setTitle(`Ticket de ${user.username}`)
-            .setDescription('Explica tu problema detalladamente. El staff te responderá pronto.')
-            .setColor('#00ff00');
-
-        await channel.send({ content: `<@${user.id}>`, embeds: [embed] });
+            .setTitle('Soporte | Ultimate Punch Playground')
+            .setDescription('Presiona el botón para abrir un ticket privado.')
+            .setColor('#2b2d31');
+        const button = new ButtonBuilder().setCustomId('create_ticket').setLabel('Abrir Ticket').setStyle(ButtonStyle.Primary).setEmoji('📩');
+        await message.channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(button)] });
     }
 });
 
