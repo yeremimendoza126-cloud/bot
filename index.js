@@ -9,7 +9,7 @@ const {
     PermissionFlagsBits, 
     EmbedBuilder 
 } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
 const ytdl = require('@distube/ytdl-core');
 
 const client = new Client({
@@ -35,14 +35,14 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDO DE MÚSICA: !play <URL de YouTube>
+    // COMANDO DE MÚSICA POR ENLACE DIRECTO
     if (command === 'play') {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
 
         const url = args[0];
         if (!url || !ytdl.validateURL(url)) {
-            return message.reply('Por favor pega un enlace directo/URL válido de YouTube. Ejemplo: `!play https://www.youtube.com/watch?v=...`');
+            return message.reply('Pega un enlace directo de YouTube. Ejemplo: `!play https://www.youtube.com/watch?v=...`');
         }
 
         try {
@@ -65,7 +65,7 @@ client.on('messageCreate', async (message) => {
             message.reply('🎶 Reproduciendo música...');
         } catch (error) {
             console.error(error);
-            message.reply('Error al intentar reproducir el enlace de YouTube.');
+            message.reply('Error al intentar reproducir el enlace.');
         }
     }
 
