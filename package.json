@@ -1,0 +1,16 @@
+{
+  "name": "bot",
+  "version": "1.0.0",
+  "description": "Bot para Ultimate Punch Playground",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@discordjs/voice": "^0.16.1",
+    "play-dl": "^1.9.7",
+    "sodium-native": "^4.1.1",
+    "ffmpeg-static": "^5.2.0"
+  }
+}
