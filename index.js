@@ -65,7 +65,6 @@ const slashCommands = [
         .setDescription('Publica el panel del sistema de tickets.')
 ].map(cmd => cmd.toJSON());
 
-// Al encender el bot: registrar comandos Slash en Discord
 client.once('ready', async () => {
     console.log(`Bot encendido como: ${client.user.tag}`);
     
@@ -82,171 +81,188 @@ client.once('ready', async () => {
     }
 });
 
-// --- MANEJADOR DE COMANDOS SLASH (/) ---
+// Manejador de interacciones
 client.on('interactionCreate', async (interaction) => {
-    // Manejo de botones (Tickets)
+    // 1. Manejo de Botones (Tickets)
     if (interaction.isButton()) {
         if (interaction.customId === 'create_ticket') {
-            const guild = interaction.guild;
-            const user = interaction.user;
+            try {
+                const guild = interaction.guild;
+                const user = interaction.user;
 
-            const channel = await guild.channels.create({
-                name: `ticket-${user.username}`,
-                type: ChannelType.GuildText,
-                permissionOverwrites: [
-                    { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                ],
-            });
+                const channel = await guild.channels.create({
+                    name: `ticket-${user.username}`,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    ],
+                });
 
-            await interaction.reply({ content: `Tu ticket fue creado en: ${channel}`, ephemeral: true });
+                await interaction.reply({ content: `Tu ticket fue creado en: ${channel}`, ephemeral: true });
 
-            const embed = new EmbedBuilder()
-                .setTitle(`Ticket de ${user.username}`)
-                .setDescription('Explica tu consulta o reporte. El staff te atenderá pronto.')
-                .setColor('#00ff00');
+                const embed = new EmbedBuilder()
+                    .setTitle(`Ticket de ${user.username}`)
+                    .setDescription('Explica tu consulta o reporte. El staff te atenderá pronto.')
+                    .setColor('#00ff00');
 
-            await channel.send({ content: `<@${user.id}>`, embeds: [embed] });
+                await channel.send({ content: `<@${user.id}>`, embeds: [embed] });
+            } catch (err) {
+                console.error(err);
+            }
         }
         return;
     }
 
+    // 2. Manejo de Comandos Slash (/)
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName, options, member, guild } = interaction;
 
-    // /ban
-    if (commandName === 'ban') {
-        if (!member.permissions.has(PermissionFlagsBits.BanMembers)) {
-            return interaction.reply({ content: '❌ No tienes permiso para banear miembros.', ephemeral: true });
-        }
-        const user = options.getUser('usuario');
-        const reason = options.getString('razon') || 'Sin razón especificada';
-        const targetMember = await guild.members.fetch(user.id).catch(() => null);
+    try {
+        // /ban
+        if (commandName === 'ban') {
+            if (!member.permissions.has(PermissionFlagsBits.BanMembers)) {
+                return interaction.reply({ content: '❌ No tienes permiso para banear miembros.', ephemeral: true });
+            }
+            await interaction.deferReply();
+            const user = options.getUser('usuario');
+            const reason = options.getString('razon') || 'Sin razón especificada';
+            const targetMember = await guild.members.fetch(user.id).catch(() => null);
 
-        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado en el servidor.', ephemeral: true });
-        if (!targetMember.bannable) return interaction.reply({ content: '❌ No puedo banear a este usuario (rol superior o administrador).', ephemeral: true });
+            if (!targetMember) return interaction.editReply('Usuario no encontrado en el servidor.');
+            if (!targetMember.bannable) return interaction.editReply('❌ No puedo banear a este usuario (rol superior o administrador).');
 
-        await targetMember.ban({ reason });
-        const embed = new EmbedBuilder()
-            .setTitle('🔨 Usuario Baneado')
-            .addFields(
-                { name: 'Usuario', value: `${user.tag}`, inline: true },
-                { name: 'Razón', value: reason, inline: true },
-                { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
-            )
-            .setColor('#ff0000');
-        return interaction.reply({ embeds: [embed] });
-    }
-
-    // /kick
-    if (commandName === 'kick') {
-        if (!member.permissions.has(PermissionFlagsBits.KickMembers)) {
-            return interaction.reply({ content: '❌ No tienes permiso para expulsar miembros.', ephemeral: true });
-        }
-        const user = options.getUser('usuario');
-        const reason = options.getString('razon') || 'Sin razón especificada';
-        const targetMember = await guild.members.fetch(user.id).catch(() => null);
-
-        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
-        if (!targetMember.kickable) return interaction.reply({ content: '❌ No puedo expulsar a este usuario.', ephemeral: true });
-
-        await targetMember.kick(reason);
-        const embed = new EmbedBuilder()
-            .setTitle('👢 Usuario Expulsado')
-            .addFields(
-                { name: 'Usuario', value: `${user.tag}`, inline: true },
-                { name: 'Razón', value: reason, inline: true },
-                { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
-            )
-            .setColor('#ffa500');
-        return interaction.reply({ embeds: [embed] });
-    }
-
-    // /timeout
-    if (commandName === 'timeout') {
-        if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-            return interaction.reply({ content: '❌ No tienes permiso para aislar miembros.', ephemeral: true });
-        }
-        const user = options.getUser('usuario');
-        const minutes = options.getInteger('minutos');
-        const reason = options.getString('razon') || 'Sin razón especificada';
-        const targetMember = await guild.members.fetch(user.id).catch(() => null);
-
-        if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
-
-        await targetMember.timeout(minutes * 60 * 1000, reason);
-        return interaction.reply({ content: `⏳ **${user.tag}** fue aislado por **${minutes} minutos**. Razón: ${reason}` });
-    }
-
-    // /clear
-    if (commandName === 'clear') {
-        if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            return interaction.reply({ content: '❌ No tienes permiso para borrar mensajes.', ephemeral: true });
-        }
-        const amount = options.getInteger('cantidad');
-        if (amount < 1 || amount > 100) return interaction.reply({ content: 'Ingresa un número entre 1 y 100.', ephemeral: true });
-
-        await interaction.channel.bulkDelete(amount, true);
-        return interaction.reply({ content: `🧹 Se borraron **${amount}** mensajes.`, ephemeral: true });
-    }
-
-    // /userinfo
-    if (commandName === 'userinfo') {
-        const targetUser = options.getUser('usuario') || interaction.user;
-        const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
-
-        const embed = new EmbedBuilder()
-            .setTitle(`Información de ${targetUser.username}`)
-            .setThumbnail(targetUser.displayAvatarURL())
-            .addFields(
-                { name: 'ID', value: targetUser.id, inline: true },
-                { name: 'Cuenta Creada', value: `<t:${Math.floor(targetUser.createdTimestamp / 1000)}:R>`, inline: true },
-                { name: 'Unido al Servidor', value: targetMember ? `<t:${Math.floor(targetMember.joinedTimestamp / 1000)}:R>` : 'Desconocido', inline: true }
-            )
-            .setColor('#2b2d31');
-        return interaction.reply({ embeds: [embed] });
-    }
-
-    // /serverinfo
-    if (commandName === 'serverinfo') {
-        const embed = new EmbedBuilder()
-            .setTitle(`Detalles de ${guild.name}`)
-            .setThumbnail(guild.iconURL())
-            .addFields(
-                { name: 'Miembros Totales', value: `${guild.memberCount}`, inline: true },
-                { name: 'Creado el', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>`, inline: true },
-                { name: 'ID del Servidor', value: guild.id, inline: true }
-            )
-            .setColor('#2b2d31');
-        return interaction.reply({ embeds: [embed] });
-    }
-
-    // /ticket-panel
-    if (commandName === 'ticket-panel') {
-        if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return interaction.reply({ content: 'Solo administradores pueden enviar el panel.', ephemeral: true });
+            await targetMember.ban({ reason });
+            const embed = new EmbedBuilder()
+                .setTitle('🔨 Usuario Baneado')
+                .addFields(
+                    { name: 'Usuario', value: `${user.tag}`, inline: true },
+                    { name: 'Razón', value: reason, inline: true },
+                    { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
+                )
+                .setColor('#ff0000');
+            return interaction.editReply({ embeds: [embed] });
         }
 
-        const embed = new EmbedBuilder()
-            .setTitle('Soporte | Ultimate Punch Playground')
-            .setDescription('Presiona el botón de abajo para abrir un ticket privado con el staff.')
-            .setColor('#2b2d31');
+        // /kick
+        if (commandName === 'kick') {
+            if (!member.permissions.has(PermissionFlagsBits.KickMembers)) {
+                return interaction.reply({ content: '❌ No tienes permiso para expulsar miembros.', ephemeral: true });
+            }
+            await interaction.deferReply();
+            const user = options.getUser('usuario');
+            const reason = options.getString('razon') || 'Sin razón especificada';
+            const targetMember = await guild.members.fetch(user.id).catch(() => null);
 
-        const button = new ButtonBuilder()
-            .setCustomId('create_ticket')
-            .setLabel('Abrir Ticket')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('📩');
+            if (!targetMember) return interaction.editReply('Usuario no encontrado.');
+            if (!targetMember.kickable) return interaction.editReply('❌ No puedo expulsar a este usuario.');
 
-        const row = new ActionRowBuilder().addComponents(button);
+            await targetMember.kick(reason);
+            const embed = new EmbedBuilder()
+                .setTitle('👢 Usuario Expulsado')
+                .addFields(
+                    { name: 'Usuario', value: `${user.tag}`, inline: true },
+                    { name: 'Razón', value: reason, inline: true },
+                    { name: 'Moderador', value: `${interaction.user.tag}`, inline: true }
+                )
+                .setColor('#ffa500');
+            return interaction.editReply({ embeds: [embed] });
+        }
 
-        await interaction.channel.send({ embeds: [embed], components: [row] });
-        return interaction.reply({ content: 'Panel enviado correctamente.', ephemeral: true });
+        // /timeout
+        if (commandName === 'timeout') {
+            if (!member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
+                return interaction.reply({ content: '❌ No tienes permiso para aislar miembros.', ephemeral: true });
+            }
+            await interaction.deferReply();
+            const user = options.getUser('usuario');
+            const minutes = options.getInteger('minutos');
+            const reason = options.getString('razon') || 'Sin razón especificada';
+            const targetMember = await guild.members.fetch(user.id).catch(() => null);
+
+            if (!targetMember) return interaction.editReply('Usuario no encontrado.');
+
+            await targetMember.timeout(minutes * 60 * 1000, reason);
+            return interaction.editReply(`⏳ **${user.tag}** fue aislado por **${minutes} minutos**. Razón: ${reason}`);
+        }
+
+        // /clear
+        if (commandName === 'clear') {
+            if (!member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+                return interaction.reply({ content: '❌ No tienes permiso para borrar mensajes.', ephemeral: true });
+            }
+            const amount = options.getInteger('cantidad');
+            if (amount < 1 || amount > 100) return interaction.reply({ content: 'Ingresa un número entre 1 y 100.', ephemeral: true });
+
+            await interaction.channel.bulkDelete(amount, true);
+            return interaction.reply({ content: `🧹 Se borraron **${amount}** mensajes.`, ephemeral: true });
+        }
+
+        // /userinfo
+        if (commandName === 'userinfo') {
+            await interaction.deferReply();
+            const targetUser = options.getUser('usuario') || interaction.user;
+            const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+
+            const embed = new EmbedBuilder()
+                .setTitle(`Información de ${targetUser.username}`)
+                .setThumbnail(targetUser.displayAvatarURL())
+                .addFields(
+                    { name: 'ID', value: targetUser.id, inline: true },
+                    { name: 'Cuenta Creada', value: `<t:${Math.floor(targetUser.createdTimestamp / 1000)}:R>`, inline: true },
+                    { name: 'Unido al Servidor', value: targetMember ? `<t:${Math.floor(targetMember.joinedTimestamp / 1000)}:R>` : 'Desconocido', inline: true }
+                )
+                .setColor('#2b2d31');
+            return interaction.editReply({ embeds: [embed] });
+        }
+
+        // /serverinfo
+        if (commandName === 'serverinfo') {
+            await interaction.deferReply();
+            const embed = new EmbedBuilder()
+                .setTitle(`Detalles de ${guild.name}`)
+                .setThumbnail(guild.iconURL())
+                .addFields(
+                    { name: 'Miembros Totales', value: `${guild.memberCount}`, inline: true },
+                    { name: 'Creado el', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>`, inline: true },
+                    { name: 'ID del Servidor', value: guild.id, inline: true }
+                )
+                .setColor('#2b2d31');
+            return interaction.editReply({ embeds: [embed] });
+        }
+
+        // /ticket-panel
+        if (commandName === 'ticket-panel') {
+            if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return interaction.reply({ content: 'Solo administradores pueden enviar el panel.', ephemeral: true });
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('Soporte | Ultimate Punch Playground')
+                .setDescription('Presiona el botón de abajo para abrir un ticket privado con el staff.')
+                .setColor('#2b2d31');
+
+            const button = new ButtonBuilder()
+                .setCustomId('create_ticket')
+                .setLabel('Abrir Ticket')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('📩');
+
+            const row = new ActionRowBuilder().addComponents(button);
+
+            await interaction.channel.send({ embeds: [embed], components: [row] });
+            return interaction.reply({ content: 'Panel enviado correctamente.', ephemeral: true });
+        }
+    } catch (err) {
+        console.error('Error ejecutando comando:', err);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: 'Ocurrió un error al ejecutar el comando.', ephemeral: true });
+        }
     }
 });
 
-// --- COMANDOS CON PREFIX (!) COMO RESPALDO ---
+// Comandos por prefijo (!) de respaldo
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
