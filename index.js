@@ -9,7 +9,7 @@ const {
     PermissionFlagsBits, 
     EmbedBuilder 
 } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType } = require('@discordjs/voice');
 const ytdl = require('@distube/ytdl-core');
 
 const client = new Client({
@@ -29,13 +29,17 @@ client.once('ready', () => {
     console.log(`Bot encendido como: ${client.user.tag}`);
 });
 
+// Capturar errores del reproductor para que no falle en silencio
+player.on('error', error => {
+    console.error('Error en el reproductor de audio:', error);
+});
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDO DE MÚSICA POR ENLACE DIRECTO
     if (command === 'play') {
         const voiceChannel = message.member.voice.channel;
         if (!voiceChannel) return message.reply('¡Entra a un canal de voz primero!');
@@ -51,12 +55,14 @@ client.on('messageCreate', async (message) => {
                 highWaterMark: 1 << 25,
                 quality: 'highestaudio'
             });
-            const resource = createAudioResource(stream);
+
+            const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
 
             const connection = joinVoiceChannel({
                 channelId: voiceChannel.id,
                 guildId: message.guild.id,
                 adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false
             });
 
             player.play(resource);
@@ -74,7 +80,6 @@ client.on('messageCreate', async (message) => {
         message.reply('Música detenida.');
     }
 
-    // COMANDO PARA EL PANEL DE TICKETS
     if (command === 'ticket-panel') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return message.reply('Solo administradores pueden usar esto.');
